@@ -16,6 +16,9 @@ class GroceriesScreen extends StatefulWidget {
 
 class _GroceriesScreenState extends State<GroceriesScreen> {
   List<GroceryItem> _groceryItems = [];
+  var _isLoading = true;
+  String? _error;
+  final _mainUrlString = 'flutter-course-5166b-default-rtdb.firebaseio.com';
 
   @override
   void initState() {
@@ -24,33 +27,76 @@ class _GroceriesScreenState extends State<GroceriesScreen> {
   }
 
   void _loadItems() async {
-    final url = Uri.https('flutter-course-5166b-default-rtdb.firebaseio.com',
+    final url = Uri.https(_mainUrlString,
         'shopping-list.json');
-    final response = await http.get(url);
-    final Map<String, dynamic> listData =
-        json.decode(response.body);
-    final List<GroceryItem> _loadedItems = [];
-    for (final item in listData.entries) {
-      final category = categories.entries
-          .firstWhere(
-              (catItem) => catItem.value.title == item.value['category'])
-          .value;
-      _loadedItems.add(GroceryItem(
-          id: item.key,
-          name: item.value['name'],
-          quantity: item.value['quantity'],
-          category: category));
+
+    try {
+      final response = await http.get(url);
+      if (response.statusCode >= 400) {
+        setState(() {
+          _error = 'Error fetching data. Please try again later';
+        });
+      }
+
+      if (response.body == 'null') {
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final Map<String, dynamic> listData = json.decode(response.body);
+      final List<GroceryItem> _loadedItems = [];
+      for (final item in listData.entries) {
+        final category = categories.entries
+            .firstWhere(
+                (catItem) => catItem.value.title == item.value['category'])
+            .value;
+        _loadedItems.add(GroceryItem(
+            id: item.key,
+            name: item.value['name'],
+            quantity: item.value['quantity'],
+            category: category));
+      }
+      setState(() {
+        _groceryItems = _loadedItems;
+        _isLoading = false;
+      });
+    } catch(error) {
+      setState(() {
+        _error = 'Something went wrong! Please try again later.';
+      });
     }
-    setState(() {
-      _groceryItems = _loadedItems;
-    });
   }
 
   void _addItem() async {
-    await Navigator.of(context).push<GroceryItem>(
+    final newItem = await Navigator.of(context).push<GroceryItem>(
         MaterialPageRoute(builder: (ctx) => const NewItem()));
 
-    _loadItems();
+    if (newItem == null) {
+      return;
+    }
+
+    setState(() {
+      _groceryItems.add(newItem);
+    });
+  }
+
+  void _removeItem(GroceryItem item) async {
+    final index = _groceryItems.indexOf(item);
+    setState(() {
+      _groceryItems.remove(item);
+    });
+
+    final url = Uri.https(_mainUrlString, 'shopping-list/${item.id}.json');
+    final response = await http.delete(url);
+    print('Delete response code: ${response.statusCode}');
+
+    if (response.statusCode >= 400) {
+      setState(() {
+        _groceryItems.insert(index, item);
+      });
+    }
   }
 
   @override
@@ -62,6 +108,11 @@ class _GroceriesScreenState extends State<GroceriesScreen> {
       ),
     );
 
+
+    if (_isLoading) {
+      content = const Center(child: CircularProgressIndicator());
+    }
+
     if (_groceryItems.isNotEmpty) {
       content = ListView.builder(
           itemCount: _groceryItems.length,
@@ -71,9 +122,7 @@ class _GroceriesScreenState extends State<GroceriesScreen> {
                   color: Colors.redAccent,
                 ),
                 onDismissed: (direction) {
-                  setState(() {
-                    _groceryItems.removeAt(index);
-                  });
+                  _removeItem(_groceryItems[index]);
                 },
                 child: ListTile(
                   title: Text(_groceryItems[index].name),
@@ -85,6 +134,10 @@ class _GroceriesScreenState extends State<GroceriesScreen> {
                   trailing: Text(_groceryItems[index].quantity.toString()),
                 ),
               ));
+    }
+
+    if (_error != null) {
+      content = Center(child: Text('$_error'));
     }
 
     return LayoutBuilder(
